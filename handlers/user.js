@@ -63,16 +63,21 @@ router.hears('ℹ️ Yordam', async (ctx) => {
 // Asosiy menyuga qaytish (callback)
 router.callbackQuery('main_menu', async (ctx) => {
   try {
+    // Agar xabar eski bo'lsa va tahrirlab bo'lmasa, yangi xabar yuboramiz
     await ctx.editMessageText(
       'Quyidagi menyudan tanlang:',
       { reply_markup: keyboards.mainMenuInline() }
     );
     await ctx.answerCallbackQuery();
   } catch (error) {
-    console.error('Main menu xatosi:', error);
-    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
+    // Agar xabarni tahrirlab bo'lmasa (masalan, xabar o'chirilgan yoki eski), yangisini yuboramiz
+    await ctx.reply('Quyidagi menyudan tanlang:', {
+      reply_markup: keyboards.mainMenuInline()
+    });
+    await ctx.answerCallbackQuery();
   }
 });
+
 
 // Rasm yuborish so'rovi
 router.callbackQuery(/^send_(childhood|current)$/, async (ctx) => {
