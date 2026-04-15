@@ -8,15 +8,16 @@ const keyboards = require('../keyboards');
 const router = new Composer();
 const ADMIN_IDS = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => parseInt(id.trim())) : [];
 
-// Admin tekshirish middleware
+// Adminlikni tekshiruvchi middleware (faqat adminlar uchun)
 router.use(async (ctx, next) => {
   const userId = ctx.from?.id;
   if (userId && ADMIN_IDS.includes(userId)) {
     await next();
   } else {
-    if (ctx.callbackQuery?.data?.startsWith('admin_') || ctx.message?.text === '/admin') {
+    // Agar admin bo'lmasa va admin buyrug'iga yoki admin tugmasiga bosilsa
+    if (ctx.message?.text === '/admin' || ctx.message?.text === '👑 Admin panel' || ctx.callbackQuery?.data?.startsWith('admin_')) {
       if (ctx.callbackQuery) {
-        await ctx.answerCallbackQuery({ text: '⛔️ Ruxsat yo\'q', show_alert: true });
+        await ctx.answerCallbackQuery({ text: '⛔️ Siz admin emassiz.', show_alert: true });
       } else {
         await ctx.reply('⛔️ Siz admin emassiz.');
       }
@@ -26,24 +27,29 @@ router.use(async (ctx, next) => {
   }
 });
 
-// /admin buyrug'i
-router.command('admin', async (ctx) => {
+// /admin komandasi
+router.command('admin', openAdminPanel);
+
+// "👑 Admin panel" tugmasi
+router.hears('👑 Admin panel', openAdminPanel);
+
+async function openAdminPanel(ctx) {
   try {
     await ctx.reply(
       '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
-      { reply_markup: keyboards.adminPanel() }
+      { reply_markup: keyboards.adminPanelInline() }
     );
   } catch (error) {
-    console.error('Admin command xatosi:', error);
+    console.error('Admin panel ochishda xato:', error);
   }
-});
+}
 
 // Admin panelni yangilash
 router.callbackQuery('admin_refresh', async (ctx) => {
   try {
     await ctx.editMessageText(
       '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
-      { reply_markup: keyboards.adminPanel() }
+      { reply_markup: keyboards.adminPanelInline() }
     );
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -52,7 +58,7 @@ router.callbackQuery('admin_refresh', async (ctx) => {
   }
 });
 
-// ========== 1. ZIP yuklash ==========
+// ========== ZIP yuklash ==========
 router.callbackQuery('admin_download', async (ctx) => {
   try {
     await ctx.answerCallbackQuery({ text: '⏳ Tayyorlanmoqda...' });
@@ -100,7 +106,7 @@ router.callbackQuery('admin_download', async (ctx) => {
   }
 });
 
-// ========== 2. Statistikani ko'rish ==========
+// ========== Statistikani ko'rish ==========
 router.callbackQuery('admin_stats', async (ctx) => {
   try {
     await ctx.answerCallbackQuery();
@@ -122,21 +128,19 @@ router.callbackQuery('admin_stats', async (ctx) => {
       text += '\n\n';
     });
     
-    // Uzun xabarni bo'lib yuborish
     const MAX = 4000;
     for (let i = 0; i < text.length; i += MAX) {
       await ctx.reply(text.substring(i, i + MAX), { parse_mode: 'HTML' });
     }
     
-    // Admin panelga qaytish tugmasi
-    await ctx.reply('🔙 Admin panelga qaytish:', { reply_markup: keyboards.adminBackToPanel() });
+    await ctx.reply('🔙 Admin panelga qaytish:', { reply_markup: keyboards.adminBackToPanelInline() });
   } catch (error) {
     console.error('Admin stats xatosi:', error);
     await ctx.reply('❌ Xatolik yuz berdi.');
   }
 });
 
-// ========== 3. Barcha rasmlarni ko'rish (pagination) ==========
+// ========== Barcha rasmlarni ko'rish ==========
 router.callbackQuery('admin_view_all', async (ctx) => {
   try {
     const allPhotos = storage.getAllPhotosWithUser();
@@ -144,7 +148,7 @@ router.callbackQuery('admin_view_all', async (ctx) => {
     if (allPhotos.length === 0) {
       await ctx.editMessageText(
         '📭 Hozircha hech qanday rasm yo\'q.',
-        { reply_markup: keyboards.adminBackToPanel() }
+        { reply_markup: keyboards.adminBackToPanelInline() }
       );
       await ctx.answerCallbackQuery();
       return;
@@ -176,7 +180,7 @@ async function showAdminPhoto(ctx, photo, index, total) {
       `📅 ${new Date(photo.uploadedAt).toLocaleString('uz-UZ')}\n` +
       `📷 Rasm ${index + 1}/${total}`;
     
-    const keyboard = keyboards.adminPhotoViewKeyboard(photo.id, index, total);
+    const keyboard = keyboards.adminPhotoViewInline(photo.id, index, total);
     
     await ctx.replyWithPhoto(new InputFile(filePath), { 
       caption, 
@@ -189,7 +193,7 @@ async function showAdminPhoto(ctx, photo, index, total) {
   }
 }
 
-// Admin navigatsiya
+// Navigatsiya
 router.callbackQuery(/^admin_(prev|next)_(\d+)$/, async (ctx) => {
   try {
     const dir = ctx.match[1];
@@ -219,7 +223,7 @@ router.callbackQuery(/^admin_(prev|next)_(\d+)$/, async (ctx) => {
   }
 });
 
-// Admin rasm o'chirish
+// Rasm o'chirish
 router.callbackQuery(/^admin_delete_photo_(.+)_(\d+)$/, async (ctx) => {
   try {
     const photoId = ctx.match[1];
@@ -233,19 +237,17 @@ router.callbackQuery(/^admin_delete_photo_(.+)_(\d+)$/, async (ctx) => {
     
     await ctx.answerCallbackQuery({ text: '✅ O\'chirildi' });
     
-    // Yangilangan ro'yxat
     const newPhotos = storage.getAllPhotosWithUser();
     ctx.session.adminPhotoList = newPhotos;
     
     if (newPhotos.length === 0) {
       await ctx.editMessageText(
         '📭 Barcha rasmlar o\'chirildi.',
-        { reply_markup: keyboards.adminBackToPanel() }
+        { reply_markup: keyboards.adminBackToPanelInline() }
       );
       return;
     }
     
-    // Indeksni sozlash
     let newIndex = currentIndex;
     if (newIndex >= newPhotos.length) newIndex = newPhotos.length - 1;
     ctx.session.adminCurrentIndex = newIndex;
@@ -258,7 +260,7 @@ router.callbackQuery(/^admin_delete_photo_(.+)_(\d+)$/, async (ctx) => {
   }
 });
 
-// ========== 4. Qabulni yoqish/o'chirish ==========
+// ========== Qabulni yoqish/o'chirish ==========
 router.callbackQuery('admin_toggle', async (ctx) => {
   try {
     const current = storage.getSetting('accepting');
@@ -272,7 +274,7 @@ router.callbackQuery('admin_toggle', async (ctx) => {
     
     await ctx.editMessageText(
       '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
-      { reply_markup: keyboards.adminPanel() }
+      { reply_markup: keyboards.adminPanelInline() }
     );
   } catch (error) {
     console.error('Admin toggle xatosi:', error);
