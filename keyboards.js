@@ -1,7 +1,22 @@
-const { InlineKeyboard } = require('grammy');
+const { InlineKeyboard, Keyboard } = require('grammy');
 
-// ========== Foydalanuvchi tugmalari ==========
-function mainMenu() {
+// ========== Reply Keyboard (oddiy tugmalar) ==========
+function mainReplyKeyboard(isAdmin = false) {
+  const keyboard = new Keyboard()
+    .text('📸 Menyu')
+    .text('ℹ️ Yordam');
+  
+  if (isAdmin) {
+    keyboard.row().text('👑 Admin panel');
+  }
+  
+  return keyboard.resized().persistent();
+}
+
+// ========== Inline Keyboardlar ==========
+
+// Asosiy menyu (foydalanuvchi)
+function mainMenuInline() {
   return new InlineKeyboard()
     .text('👶 Yoshlikdagi rasm', 'send_childhood')
     .text('🧑 Hozirgi rasm', 'send_current')
@@ -9,7 +24,8 @@ function mainMenu() {
     .text('🖼 Yuborgan rasmlarim', 'my_photos');
 }
 
-function myPhotosMenu() {
+// Rasmlarim menyusi
+function myPhotosMenuInline() {
   return new InlineKeyboard()
     .text('👶 Yoshlikdagi', 'list_childhood')
     .text('🧑 Hozirgi', 'list_current')
@@ -17,15 +33,17 @@ function myPhotosMenu() {
     .text('🔙 Asosiy menyu', 'main_menu');
 }
 
-function photoActions(photoId, photoType) {
+// Rasm ko'rishda o'chirish va navigatsiya
+function photoActionsInline(photoId, photoType) {
   return new InlineKeyboard()
-    .text('🗑 O\'chirish', `delete_${photoId}_${photoType}`)
+    .text('🗑 O\'chirish', `delete_req_${photoId}_${photoType}`)
     .row()
     .text('🔙 Orqaga', `list_${photoType}`)
     .text('🏠 Bosh menyu', 'main_menu');
 }
 
-function confirmDeleteKeyboard(photoId, photoType) {
+// O'chirishni tasdiqlash
+function confirmDeleteInline(photoId, photoType) {
   return new InlineKeyboard()
     .text('✅ Ha, o\'chirilsin', `confirm_delete_${photoId}_${photoType}`)
     .text('❌ Yo\'q', `list_${photoType}`)
@@ -33,20 +51,15 @@ function confirmDeleteKeyboard(photoId, photoType) {
     .text('🏠 Bosh menyu', 'main_menu');
 }
 
-function backToMain() {
+// Orqaga qaytish (asosiy menyuga)
+function backToMainInline() {
   return new InlineKeyboard().text('🔙 Asosiy menyu', 'main_menu');
 }
 
-function backToList(photoType) {
+// ========== Admin Inline Keyboard ==========
+function adminPanelInline() {
   return new InlineKeyboard()
-    .text('🔙 Ro\'yxatga', `list_${photoType}`)
-    .text('🏠 Bosh menyu', 'main_menu');
-}
-
-// ========== Admin tugmalari ==========
-function adminPanel() {
-  return new InlineKeyboard()
-    .text('📦 Barcha rasmlarni ZIP yuklash', 'admin_download')
+    .text('📦 Barcha rasmlarni ZIP', 'admin_download')
     .row()
     .text('📊 Foydalanuvchilar statistikasi', 'admin_stats')
     .row()
@@ -57,31 +70,31 @@ function adminPanel() {
     .text('🔄 Yangilash', 'admin_refresh');
 }
 
-function adminBackToPanel() {
+// Admin panelga qaytish
+function adminBackToPanelInline() {
   return new InlineKeyboard().text('🔙 Admin panelga', 'admin_refresh');
 }
 
-function adminPhotoViewKeyboard(photoId, currentIndex, total, isAccepting) {
+// Admin rasm ko'rishda navigatsiya va o'chirish
+function adminPhotoViewInline(photoId, currentIndex, total) {
   const keyboard = new InlineKeyboard();
-  
   if (currentIndex > 0) keyboard.text('⬅️ Oldingi', `admin_prev_${currentIndex}`);
   if (currentIndex < total - 1) keyboard.text('➡️ Keyingi', `admin_next_${currentIndex}`);
   keyboard.row();
   keyboard.text('🗑 O\'chirish', `admin_delete_photo_${photoId}_${currentIndex}`);
   keyboard.row();
   keyboard.text('🔙 Admin panelga', 'admin_refresh');
-  
   return keyboard;
 }
 
 module.exports = {
-  mainMenu,
-  myPhotosMenu,
-  photoActions,
-  confirmDeleteKeyboard,
-  backToMain,
-  backToList,
-  adminPanel,
-  adminBackToPanel,
-  adminPhotoViewKeyboard
+  mainReplyKeyboard,
+  mainMenuInline,
+  myPhotosMenuInline,
+  photoActionsInline,
+  confirmDeleteInline,
+  backToMainInline,
+  adminPanelInline,
+  adminBackToPanelInline,
+  adminPhotoViewInline
 };
