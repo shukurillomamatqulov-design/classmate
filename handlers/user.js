@@ -1,7 +1,6 @@
 const { Composer, InputFile } = require('grammy');
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch'); // Node 18+ da global fetch bor, lekin ishonch uchun
 const storage = require('../storage');
 const keyboards = require('../keyboards');
 
@@ -9,90 +8,101 @@ const router = new Composer();
 
 // /start
 router.command('start', async (ctx) => {
-  const user = ctx.from;
-  storage.saveUser(user.id, user.first_name + (user.last_name ? ' ' + user.last_name : ''), user.username);
-  
-  await ctx.reply(
-    `👋 Assalomu alaykum, ${user.first_name}!\n\n` +
-    `Ushbu bot orqali yoshlikdagi va hozirgi rasmlaringizni yuborishingiz mumkin.\n` +
-    `Quyidagi menyudan tanlang:`,
-    { reply_markup: keyboards.mainMenu() }
-  );
+  try {
+    const user = ctx.from;
+    storage.saveUser(user.id, user.first_name + (user.last_name ? ' ' + user.last_name : ''), user.username);
+    
+    await ctx.reply(
+      `👋 Assalomu alaykum, ${user.first_name}!\n\n` +
+      `Ushbu bot orqali yoshlikdagi va hozirgi rasmlaringizni yuborishingiz mumkin.\n` +
+      `Quyidagi menyudan tanlang:`,
+      { reply_markup: keyboards.mainMenu() }
+    );
+  } catch (error) {
+    console.error('Start xatosi:', error);
+    await ctx.reply('Xatolik yuz berdi. Iltimos, keyinroq urinib ko\'ring.');
+  }
 });
 
 // Asosiy menyuga qaytish
 router.callbackQuery('main_menu', async (ctx) => {
-  await ctx.editMessageText(
-    `👋 Assalomu alaykum, ${ctx.from.first_name}!\nQuyidagi menyudan tanlang:`,
-    { reply_markup: keyboards.mainMenu() }
-  );
-  await ctx.answerCallbackQuery();
+  try {
+    await ctx.editMessageText(
+      `👋 Assalomu alaykum, ${ctx.from.first_name}!\nQuyidagi menyudan tanlang:`,
+      { reply_markup: keyboards.mainMenu() }
+    );
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Main menu xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
+  }
 });
 
 // Rasm yuborish so'rovi
 router.callbackQuery(/^send_(childhood|current)$/, async (ctx) => {
-  const photoType = ctx.match[1];
-  
-  // Qabul yoqilganligini tekshirish
-  if (!storage.getSetting('accepting')) {
-    await ctx.answerCallbackQuery({ text: '❌ Hozirda rasmlar qabul qilinmayapti.', show_alert: true });
-    return;
+  try {
+    const photoType = ctx.match[1];
+    
+    if (!storage.getSetting('accepting')) {
+      await ctx.answerCallbackQuery({ text: '❌ Hozirda rasmlar qabul qilinmayapti.', show_alert: true });
+      return;
+    }
+    
+    ctx.session.step = 'waiting_photo';
+    ctx.session.photoType = photoType;
+    
+    const msg = photoType === 'childhood' 
+      ? '👶 Iltimos, yoshlikdagi rasmingizni yuboring:' 
+      : '🧑 Iltimos, hozirgi rasmingizni yuboring:';
+    
+    await ctx.reply(msg, { reply_markup: { force_reply: true } });
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Send photo xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
   }
-  
-  ctx.session.step = 'waiting_photo';
-  ctx.session.photoType = photoType;
-  
-  const msg = photoType === 'childhood' 
-    ? '👶 Iltimos, yoshlikdagi rasmingizni yuboring:' 
-    : '🧑 Iltimos, hozirgi rasmingizni yuboring:';
-  
-  await ctx.reply(msg, { reply_markup: { force_reply: true } });
-  await ctx.answerCallbackQuery();
 });
 
 // Rasm qabul qilish
 router.on(':photo', async (ctx, next) => {
   if (ctx.session?.step !== 'waiting_photo') return next();
   
-  const photoType = ctx.session.photoType;
-  const user = ctx.from;
-  
   try {
+    const photoType = ctx.session.photoType;
+    const user = ctx.from;
+    
     const photo = ctx.message.photo[ctx.message.photo.length - 1];
     const fileId = photo.file_id;
     
-    // Telegram'dan fayl ma'lumotini olish
     const file = await ctx.api.getFile(fileId);
     const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
     
-    // Fayl kengaytmasini aniqlash
     const ext = path.extname(file.file_path) || '.jpg';
     const fileName = `${Date.now()}_${user.id}${ext}`;
     
-    // User papkasini yaratish
     const userDir = path.join(storage.PHOTOS_DIR, String(user.id));
     if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
     
     const filePath = path.join(userDir, fileName);
     
-    // Rasmni yuklab olish va saqlash
+    // Rasmni yuklab olish
     const response = await fetch(fileUrl);
-    const buffer = await response.buffer();
-    fs.writeFileSync(filePath, buffer);
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const buffer = await response.arrayBuffer();
+    fs.writeFileSync(filePath, Buffer.from(buffer));
     
-    // Metama'lumotlarni saqlash
+    // Metadata saqlash
     const photoData = {
       id: storage.generateId(),
       userId: user.id,
       photoType: photoType,
       fileId: fileId,
-      filePath: path.join(String(user.id), fileName), // nisbiy yo'l
+      filePath: path.join(String(user.id), fileName),
       caption: ctx.message.caption || '',
       uploadedAt: new Date().toISOString()
     };
     storage.savePhotoMeta(photoData);
     
-    // Holatni tozalash
     ctx.session.step = null;
     ctx.session.photoType = null;
     
@@ -110,111 +120,152 @@ router.on(':photo', async (ctx, next) => {
 
 // "Rasmlarim" menyusi
 router.callbackQuery('my_photos', async (ctx) => {
-  await ctx.editMessageText(
-    '📸 Qaysi turdagi rasmlaringizni ko\'rmoqchisiz?',
-    { reply_markup: keyboards.myPhotosMenu() }
-  );
-  await ctx.answerCallbackQuery();
+  try {
+    await ctx.editMessageText(
+      '📸 Qaysi turdagi rasmlaringizni ko\'rmoqchisiz?',
+      { reply_markup: keyboards.myPhotosMenu() }
+    );
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('My photos xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
+  }
 });
 
 // Ro'yxatni ko'rish
 router.callbackQuery(/^list_(childhood|current)$/, async (ctx) => {
-  const photoType = ctx.match[1];
-  const userId = ctx.from.id;
-  const photos = storage.getUserPhotos(userId, photoType);
-  
-  const typeName = photoType === 'childhood' ? 'yoshlikdagi' : 'hozirgi';
-  
-  if (photos.length === 0) {
-    await ctx.editMessageText(
-      `📭 Sizda hali ${typeName} rasmlar yo'q.`,
-      { reply_markup: keyboards.backToMain() }
-    );
+  try {
+    const photoType = ctx.match[1];
+    const userId = ctx.from.id;
+    const photos = storage.getUserPhotos(userId, photoType);
+    
+    const typeName = photoType === 'childhood' ? 'yoshlikdagi' : 'hozirgi';
+    
+    if (photos.length === 0) {
+      await ctx.editMessageText(
+        `📭 Sizda hali ${typeName} rasmlar yo'q.`,
+        { reply_markup: keyboards.backToMain() }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    ctx.session.photoList = photos;
+    ctx.session.currentIndex = 0;
+    ctx.session.photoType = photoType;
+    
+    await showPhoto(ctx, photos[0], 0, photos.length);
     await ctx.answerCallbackQuery();
-    return;
+  } catch (error) {
+    console.error('List photos xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
   }
-  
-  // Sessionda ro'yxat va indeks saqlash
-  ctx.session.photoList = photos;
-  ctx.session.currentIndex = 0;
-  ctx.session.photoType = photoType;
-  
-  await showPhoto(ctx, photos[0], 0, photos.length);
-  await ctx.answerCallbackQuery();
 });
 
-// Rasmni ko'rsatish yordamchi funksiyasi
+// Rasmni ko'rsatish (yordamchi)
 async function showPhoto(ctx, photo, index, total) {
-  const filePath = path.join(storage.PHOTOS_DIR, photo.filePath);
-  
-  const caption = `📷 Rasm ${index + 1}/${total}\n` +
-                  (photo.caption ? `📝 Izoh: ${photo.caption}\n` : '') +
-                  `📅 ${new Date(photo.uploadedAt).toLocaleString('uz-UZ')}`;
-  
-  const keyboard = new (require('grammy').InlineKeyboard)();
-  if (index > 0) keyboard.text('⬅️', `nav_prev`);
-  keyboard.text('🗑', `delete_${photo.id}_${ctx.session.photoType}`);
-  if (index < total - 1) keyboard.text('➡️', `nav_next`);
-  keyboard.row().text('🔙 Ro\'yxatga', `list_${ctx.session.photoType}`).text('🏠 Bosh menyu', 'main_menu');
-  
-  await ctx.replyWithPhoto(new InputFile(filePath), { caption, reply_markup: keyboard });
+  try {
+    const filePath = path.join(storage.PHOTOS_DIR, photo.filePath);
+    
+    const caption = `📷 Rasm ${index + 1}/${total}\n` +
+                    (photo.caption ? `📝 Izoh: ${photo.caption}\n` : '') +
+                    `📅 ${new Date(photo.uploadedAt).toLocaleString('uz-UZ')}`;
+    
+    const keyboard = new (require('grammy').InlineKeyboard)();
+    if (index > 0) keyboard.text('⬅️', `nav_prev`);
+    keyboard.text('🗑', `delete_req_${photo.id}_${ctx.session.photoType}`);
+    if (index < total - 1) keyboard.text('➡️', `nav_next`);
+    keyboard.row().text('🔙 Ro\'yxatga', `list_${ctx.session.photoType}`).text('🏠 Bosh menyu', 'main_menu');
+    
+    await ctx.replyWithPhoto(new InputFile(filePath), { caption, reply_markup: keyboard });
+  } catch (error) {
+    console.error('Show photo xatosi:', error);
+    await ctx.reply('Rasmni ko\'rsatishda xatolik yuz berdi.');
+  }
 }
 
 // Navigatsiya
 router.callbackQuery(/^nav_(prev|next)$/, async (ctx) => {
-  const dir = ctx.match[1];
-  const photos = ctx.session.photoList;
-  let index = ctx.session.currentIndex;
-  
-  if (!photos || photos.length === 0) {
-    await ctx.answerCallbackQuery({ text: 'Xatolik' });
-    return;
-  }
-  
-  if (dir === 'prev' && index > 0) index--;
-  else if (dir === 'next' && index < photos.length - 1) index++;
-  else {
-    await ctx.answerCallbackQuery();
-    return;
-  }
-  
-  ctx.session.currentIndex = index;
-  await ctx.deleteMessage();
-  await showPhoto(ctx, photos[index], index, photos.length);
-  await ctx.answerCallbackQuery();
-});
-
-// O'chirish
-router.callbackQuery(/^delete_(.+)_(childhood|current)$/, async (ctx) => {
-  const photoId = ctx.match[1];
-  const photoType = ctx.match[2];
-  const userId = ctx.from.id;
-  
-  const deleted = storage.deletePhotoMeta(photoId, userId);
-  if (!deleted) {
-    await ctx.answerCallbackQuery({ text: '❌ Rasm topilmadi', show_alert: true });
-    return;
-  }
-  
-  await ctx.answerCallbackQuery({ text: '✅ O\'chirildi' });
-  
-  // Qaytadan ro'yxatni olish
-  const photos = storage.getUserPhotos(userId, photoType);
-  if (photos.length === 0) {
-    await ctx.editMessageText(
-      `📭 Sizda ${photoType === 'childhood' ? 'yoshlikdagi' : 'hozirgi'} rasmlar qolmadi.`,
-      { reply_markup: keyboards.backToMain() }
-    );
-  } else {
-    ctx.session.photoList = photos;
-    ctx.session.currentIndex = 0;
-    ctx.session.photoType = photoType;
+  try {
+    const dir = ctx.match[1];
+    const photos = ctx.session.photoList;
+    let index = ctx.session.currentIndex;
+    
+    if (!photos || photos.length === 0) {
+      await ctx.answerCallbackQuery({ text: 'Xatolik' });
+      return;
+    }
+    
+    if (dir === 'prev' && index > 0) index--;
+    else if (dir === 'next' && index < photos.length - 1) index++;
+    else {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    ctx.session.currentIndex = index;
     await ctx.deleteMessage();
-    await showPhoto(ctx, photos[0], 0, photos.length);
+    await showPhoto(ctx, photos[index], index, photos.length);
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Navigation xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
   }
 });
 
-// Boshqa xabarlar
+// O'chirish so'rovi (tasdiqlash)
+router.callbackQuery(/^delete_req_(.+)_(childhood|current)$/, async (ctx) => {
+  try {
+    const photoId = ctx.match[1];
+    const photoType = ctx.match[2];
+    
+    await ctx.editMessageCaption({
+      caption: `❓ Rostdan ham bu rasmni o'chirmoqchimisiz?`,
+      reply_markup: keyboards.confirmDeleteKeyboard(photoId, photoType)
+    });
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    console.error('Delete request xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
+  }
+});
+
+// Tasdiqlangan o'chirish
+router.callbackQuery(/^confirm_delete_(.+)_(childhood|current)$/, async (ctx) => {
+  try {
+    const photoId = ctx.match[1];
+    const photoType = ctx.match[2];
+    const userId = ctx.from.id;
+    
+    const deleted = storage.deletePhotoMeta(photoId, userId);
+    if (!deleted) {
+      await ctx.answerCallbackQuery({ text: '❌ Rasm topilmadi', show_alert: true });
+      return;
+    }
+    
+    await ctx.answerCallbackQuery({ text: '✅ O\'chirildi' });
+    
+    // Yangi ro'yxat
+    const photos = storage.getUserPhotos(userId, photoType);
+    if (photos.length === 0) {
+      await ctx.editMessageText(
+        `📭 Sizda ${photoType === 'childhood' ? 'yoshlikdagi' : 'hozirgi'} rasmlar qolmadi.`,
+        { reply_markup: keyboards.backToMain() }
+      );
+    } else {
+      ctx.session.photoList = photos;
+      ctx.session.currentIndex = 0;
+      ctx.session.photoType = photoType;
+      await ctx.deleteMessage();
+      await showPhoto(ctx, photos[0], 0, photos.length);
+    }
+  } catch (error) {
+    console.error('Confirm delete xatosi:', error);
+    await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
+  }
+});
+
+// Noto'g'ri xabar
 router.on('message', async (ctx) => {
   if (ctx.session?.step === 'waiting_photo') {
     await ctx.reply('❌ Iltimos, rasm (foto) yuboring.');
