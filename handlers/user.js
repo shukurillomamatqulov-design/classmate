@@ -16,7 +16,7 @@ router.command('start', async (ctx) => {
     
     await ctx.reply(
       `👋 Assalomu alaykum, ${user.first_name}!\n\n` +
-      `Ushbu bot orqali yoshlikdagi va hozirgi rasmlaringizni yuborishingiz mumkin.\n` +
+      `Ushbu bot orqali vinetkadagi va hozirgi rasmlaringizni yuborishingiz mumkin.\n` +
       `Pastdagi tugmalar orqali menyuni boshqaring:`,
       { reply_markup: keyboards.mainReplyKeyboard(isAdmin) }
     );
@@ -93,7 +93,7 @@ router.callbackQuery(/^send_(childhood|current)$/, async (ctx) => {
     ctx.session.photoType = photoType;
     
     const msg = photoType === 'childhood' 
-      ? '👶 Iltimos, yoshlikdagi rasmingizni yuboring:' 
+      ? '👶 Iltimos, vinetkadagi rasmingizni yuboring:' 
       : '🧑 Iltimos, hozirgi rasmingizni yuboring:';
     
     await ctx.reply(msg);
