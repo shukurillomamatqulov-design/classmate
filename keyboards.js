@@ -18,9 +18,9 @@ function mainReplyKeyboard(isAdmin = false) {
 // Asosiy menyu (foydalanuvchi)
 function mainMenuInline() {
   return new InlineKeyboard()
-    .text('Vinetkadagu rasmni yuborish', 'send_childhood')
+    .text('🖼 Vinetkadagi rasmni yuborish', 'send_childhood')
     .row()
-    .text('Hozirgi rasmni yuborish', 'send_current')
+    .text('🖼 Hozirgi rasmni yuborish', 'send_current')
     .row()
     .text('🖼 Yuborgan rasmlarim', 'my_photos');
 }
