@@ -1,0 +1,23 @@
+{
+  "name": "photo-collector-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for collecting childhood and current photos with admin panel",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "grammy": "^1.19.0",
+    "dotenv": "^16.3.1",
+    "sqlite3": "^5.1.6",
+    "sqlite": "^5.1.1",
+    "adm-zip": "^0.5.10"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
