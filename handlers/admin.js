@@ -2,25 +2,26 @@ const { Composer, InputFile } = require('grammy');
 const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
-const { 
-  getAllPhotos, getUsersWithPhotoStats, getSetting, setSetting, PHOTOS_DIR 
-} = require('../database');
+const storage = require('../storage');
 const keyboards = require('../keyboards');
 
 const router = new Composer();
-const ADMIN_IDS = process.env.ADMIN_IDS.split(',').map(id => parseInt(id.trim()));
+const ADMIN_IDS = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => parseInt(id.trim())) : [];
 
-// Admin middleware
+// Admin tekshirish middleware
 router.use(async (ctx, next) => {
   if (ctx.from && ADMIN_IDS.includes(ctx.from.id)) {
     await next();
   } else {
-    // Admin bo'lmaganlar uchun xatolik (agar admin buyrug'iga kirishga urinsa)
+    // Agar admin bo'lmasa va callback admin so'rovi bo'lsa
     if (ctx.callbackQuery?.data?.startsWith('admin_') || ctx.message?.text === '/admin') {
-      await ctx.answerCallbackQuery?.({ text: '⛔️ Sizda admin huquqi yo\'q.', show_alert: true }) ||
-      await ctx.reply('⛔️ Sizda admin huquqi yo\'q.');
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({ text: '⛔️ Ruxsat yo\'q', show_alert: true });
+      } else {
+        await ctx.reply('⛔️ Siz admin emassiz.');
+      }
     } else {
-      await next(); // oddiy foydalanuvchi handlerlariga o'tkazish
+      await next();
     }
   }
 });
@@ -28,104 +29,112 @@ router.use(async (ctx, next) => {
 // /admin buyrug'i
 router.command('admin', async (ctx) => {
   await ctx.reply(
-    '👑 Admin panelga xush kelibsiz!\nQuyidagi amallardan birini tanlang:',
-    { reply_markup: keyboards.adminPanelKeyboard() }
+    '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
+    { reply_markup: keyboards.adminPanel() }
   );
 });
 
-// Admin panelni yangilash
+// Yangilash
 router.callbackQuery('admin_refresh', async (ctx) => {
   await ctx.editMessageText(
-    '👑 Admin panelga xush kelibsiz!\nQuyidagi amallardan birini tanlang:',
-    { reply_markup: keyboards.adminPanelKeyboard() }
+    '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
+    { reply_markup: keyboards.adminPanel() }
   );
   await ctx.answerCallbackQuery();
 });
 
-// 1. Barcha rasmlarni ZIP arxivda yuklash
+// ZIP yuklash
 router.callbackQuery('admin_download', async (ctx) => {
-  await ctx.answerCallbackQuery({ text: '⏳ Rasmlar yig\'ilmoqda, biroz kuting...' });
+  await ctx.answerCallbackQuery({ text: '⏳ Tayyorlanmoqda...' });
   
-  const photos = await getAllPhotos();
-  if (photos.length === 0) {
-    await ctx.reply('📭 Hozircha birorta ham rasm yo\'q.');
-    return;
-  }
-  
-  const zip = new AdmZip();
-  
-  for (const photo of photos) {
-    const userFolder = `${photo.full_name} (${photo.user_id})`;
-    const typeFolder = photo.photo_type === 'childhood' ? 'Yoshlikdagi' : 'Hozirgi';
-    const fileName = `${photo.id}_${path.basename(photo.file_path)}`;
-    
-    // Fayl mavjudligini tekshirish
-    if (fs.existsSync(photo.file_path)) {
-      zip.addLocalFile(photo.file_path, path.join(userFolder, typeFolder));
+  try {
+    const allPhotos = storage.getAllPhotosWithUser();
+    if (allPhotos.length === 0) {
+      await ctx.reply('📭 Hozircha hech qanday rasm yo\'q.');
+      return;
     }
     
-    // Har bir rasm uchun izoh fayli
-    const captionFile = path.join(userFolder, typeFolder, `${fileName}.txt`);
-    const captionContent = `Foydalanuvchi: ${photo.full_name} (@${photo.username || 'username yo\'q'})\n` +
-                          `ID: ${photo.user_id}\n` +
-                          `Rasm turi: ${photo.photo_type === 'childhood' ? 'Yoshlikdagi' : 'Hozirgi'}\n` +
-                          `Yuklangan sana: ${photo.uploaded_at}\n` +
-                          `Izoh: ${photo.caption || 'Izoh qoldirilmagan'}`;
-    zip.addFile(captionFile, Buffer.from(captionContent, 'utf8'));
+    const zip = new AdmZip();
+    
+    allPhotos.forEach(photo => {
+      const user = photo.user;
+      const userName = user.fullName.replace(/[^a-z0-9\u0400-\u04FF]/gi, '_') || 'user';
+      const userFolder = `${userName}_${photo.userId}`;
+      const typeFolder = photo.photoType === 'childhood' ? 'Yoshlikdagi' : 'Hozirgi';
+      
+      const fullPath = path.join(storage.PHOTOS_DIR, photo.filePath);
+      if (fs.existsSync(fullPath)) {
+        const destPath = path.join(userFolder, typeFolder, path.basename(photo.filePath));
+        zip.addLocalFile(fullPath, path.dirname(destPath));
+        
+        // Izoh fayli qo'shish
+        const infoFile = path.join(userFolder, typeFolder, `${photo.id}.txt`);
+        const infoContent = 
+          `Foydalanuvchi: ${user.fullName} (@${user.username || 'username yo\'q'})\n` +
+          `User ID: ${photo.userId}\n` +
+          `Rasm turi: ${photo.photoType === 'childhood' ? 'Yoshlikdagi' : 'Hozirgi'}\n` +
+          `Yuklangan sana: ${photo.uploadedAt}\n` +
+          `Izoh: ${photo.caption || '—'}`;
+        zip.addFile(infoFile, Buffer.from(infoContent, 'utf8'));
+      }
+    });
+    
+    const zipBuffer = zip.toBuffer();
+    const dateStr = new Date().toISOString().slice(0,10);
+    
+    await ctx.replyWithDocument(
+      new InputFile(zipBuffer, `barcha_rasmlar_${dateStr}.zip`),
+      { caption: `📦 Jami ${allPhotos.length} ta rasm` }
+    );
+  } catch (error) {
+    console.error('ZIP yaratishda xato:', error);
+    await ctx.reply('❌ Xatolik yuz berdi.');
   }
-  
-  const zipBuffer = zip.toBuffer();
-  
-  await ctx.replyWithDocument(
-    new InputFile(zipBuffer, `barcha_rasmlar_${new Date().toISOString().slice(0,10)}.zip`),
-    { caption: `📦 Jami ${photos.length} ta rasm` }
-  );
 });
 
-// 2. Foydalanuvchilar statistikasi
+// Statistikani ko'rish
 router.callbackQuery('admin_stats', async (ctx) => {
   await ctx.answerCallbackQuery();
   
-  const stats = await getUsersWithPhotoStats();
+  const stats = storage.getUsersWithPhotoCounts();
   if (stats.length === 0) {
-    await ctx.reply('📊 Hozircha birorta ham rasm yuborgan foydalanuvchi yo\'q.');
+    await ctx.reply('📊 Hozircha rasm yuborgan foydalanuvchilar yo\'q.');
     return;
   }
   
-  let message = '👥 <b>Rasm yuborgan foydalanuvchilar:</b>\n\n';
-  for (const user of stats) {
-    message += `👤 <b>${user.full_name}</b> `;
-    if (user.username) message += `(@${user.username}) `;
-    message += `\n🆔 ID: <code>${user.user_id}</code>\n`;
-    message += `👶 Yoshlikdagi: ${user.childhood_count} ta\n`;
-    message += `🧑 Hozirgi: ${user.current_count} ta\n`;
-    message += `📅 Oxirgi yuklama: ${user.last_upload ? new Date(user.last_upload).toLocaleString('uz-UZ') : '—'}\n\n`;
-  }
+  let text = '👥 <b>Rasm yuborgan foydalanuvchilar:</b>\n\n';
+  stats.forEach((u, i) => {
+    text += `${i+1}. <b>${u.fullName}</b>`;
+    if (u.username) text += ` (@${u.username})`;
+    text += `\n🆔 ID: <code>${u.userId}</code>`;
+    text += `\n👶 Yoshlikdagi: ${u.childhood} ta`;
+    text += `\n🧑 Hozirgi: ${u.current} ta`;
+    text += `\n📅 Oxirgi: ${u.lastUpload ? new Date(u.lastUpload).toLocaleString('uz-UZ') : '—'}`;
+    text += '\n\n';
+  });
   
-  // Uzun xabarlarni bo'lib yuborish
-  const MAX_LENGTH = 4000;
-  for (let i = 0; i < message.length; i += MAX_LENGTH) {
-    await ctx.reply(message.substring(i, i + MAX_LENGTH), { parse_mode: 'HTML' });
+  // Uzun xabarni bo'lish
+  const MAX = 4000;
+  for (let i = 0; i < text.length; i += MAX) {
+    await ctx.reply(text.substring(i, i + MAX), { parse_mode: 'HTML' });
   }
 });
 
-// 3. Qabulni ochish/yopish
+// Qabulni yoqish/o'chirish
 router.callbackQuery('admin_toggle', async (ctx) => {
-  const current = await getSetting('accepting');
-  const newStatus = current === 'on' ? 'off' : 'on';
-  await setSetting('accepting', newStatus);
+  const current = storage.getSetting('accepting');
+  storage.setSetting('accepting', !current);
+  const newStatus = !current;
   
-  const statusText = newStatus === 'on' ? '✅ Qabul qilish yoqildi' : '⛔️ Qabul qilish o\'chirildi';
-  await ctx.answerCallbackQuery({ text: statusText, show_alert: true });
+  await ctx.answerCallbackQuery({
+    text: newStatus ? '✅ Qabul qilish yoqildi' : '⛔️ Qabul qilish o\'chirildi',
+    show_alert: true
+  });
   
-  // Admin panelni yangilash
   await ctx.editMessageText(
-    '👑 Admin panelga xush kelibsiz!\nQuyidagi amallardan birini tanlang:',
-    { reply_markup: keyboards.adminPanelKeyboard() }
+    '👑 Admin panel\nQuyidagi amallardan birini tanlang:',
+    { reply_markup: keyboards.adminPanel() }
   );
 });
-
-// Admin uchun rasm yuborish va tahrirlash imkoniyati (kerak bo'lsa qo'shimcha)
-// Masalan, admin foydalanuvchi nomidan rasm qo'shishi mumkin.
 
 module.exports = router;
