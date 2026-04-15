@@ -23,6 +23,10 @@ function saveUser(userId, fullName, username) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
+function getAllUsers() {
+  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+}
+
 // ========== Rasmlar metadata ==========
 function getAllPhotosMeta() {
   return JSON.parse(fs.readFileSync(META_FILE, 'utf8'));
@@ -46,28 +50,40 @@ function deletePhotoMeta(photoId, userId) {
   const photo = meta.find(p => p.id === photoId && p.userId === userId);
   if (!photo) return false;
   
-  // Faylni o'chirish
   const filePath = path.join(PHOTOS_DIR, photo.filePath);
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   
-  // Meta'dan o'chirish
   const newMeta = meta.filter(p => !(p.id === photoId && p.userId === userId));
+  fs.writeFileSync(META_FILE, JSON.stringify(newMeta, null, 2));
+  return true;
+}
+
+// Admin: istalgan rasmni o'chirish (userId tekshirmasdan)
+function adminDeletePhoto(photoId) {
+  const meta = getAllPhotosMeta();
+  const photo = meta.find(p => p.id === photoId);
+  if (!photo) return false;
+  
+  const filePath = path.join(PHOTOS_DIR, photo.filePath);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  
+  const newMeta = meta.filter(p => p.id !== photoId);
   fs.writeFileSync(META_FILE, JSON.stringify(newMeta, null, 2));
   return true;
 }
 
 function getAllPhotosWithUser() {
   const meta = getAllPhotosMeta();
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  const users = getAllUsers();
   return meta.map(p => ({
     ...p,
     user: users[p.userId] || { fullName: 'Nomaʼlum', username: null }
-  }));
+  })).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
 }
 
 function getUsersWithPhotoCounts() {
   const meta = getAllPhotosMeta();
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  const users = getAllUsers();
   const stats = {};
   
   meta.forEach(p => {
@@ -110,9 +126,11 @@ function generateId() {
 module.exports = {
   PHOTOS_DIR,
   saveUser,
+  getAllUsers,
   savePhotoMeta,
   getUserPhotos,
   deletePhotoMeta,
+  adminDeletePhoto,
   getAllPhotosWithUser,
   getUsersWithPhotoCounts,
   getSetting,
