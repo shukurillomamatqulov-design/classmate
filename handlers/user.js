@@ -12,24 +12,60 @@ router.command('start', async (ctx) => {
     const user = ctx.from;
     storage.saveUser(user.id, user.first_name + (user.last_name ? ' ' + user.last_name : ''), user.username);
     
+    const isAdmin = process.env.ADMIN_IDS.split(',').map(id => parseInt(id)).includes(user.id);
+    
     await ctx.reply(
       `👋 Assalomu alaykum, ${user.first_name}!\n\n` +
       `Ushbu bot orqali yoshlikdagi va hozirgi rasmlaringizni yuborishingiz mumkin.\n` +
-      `Quyidagi menyudan tanlang:`,
-      { reply_markup: keyboards.mainMenu() }
+      `Pastdagi tugmalar orqali menyuni boshqaring:`,
+      { reply_markup: keyboards.mainReplyKeyboard(isAdmin) }
     );
+    
+    // Asosiy inline menyuni ham ko'rsatamiz
+    await ctx.reply('Quyidagi amallardan birini tanlang:', {
+      reply_markup: keyboards.mainMenuInline()
+    });
   } catch (error) {
     console.error('Start xatosi:', error);
     await ctx.reply('Xatolik yuz berdi. Iltimos, keyinroq urinib ko\'ring.');
   }
 });
 
-// Asosiy menyuga qaytish
+// /menu – asosiy menyuni qayta ko'rsatish
+router.command('menu', async (ctx) => {
+  try {
+    await ctx.reply('Asosiy menyu:', {
+      reply_markup: keyboards.mainMenuInline()
+    });
+  } catch (error) {
+    console.error('Menu xatosi:', error);
+  }
+});
+
+// "📸 Menyu" tugmasi bosilganda
+router.hears('📸 Menyu', async (ctx) => {
+  await ctx.reply('Asosiy menyu:', {
+    reply_markup: keyboards.mainMenuInline()
+  });
+});
+
+// "ℹ️ Yordam" tugmasi
+router.hears('ℹ️ Yordam', async (ctx) => {
+  await ctx.reply(
+    '📌 Botdan foydalanish:\n\n' +
+    '• Yoshlikdagi yoki hozirgi rasmingizni yuborish uchun tugmalardan foydalaning.\n' +
+    '• Yuborgan rasmlaringizni ko\'rish va o\'chirish mumkin.\n' +
+    '• Admin panel faqat ruxsat etilgan foydalanuvchilar uchun.\n\n' +
+    'Savollaringiz bo\'lsa: @admin_username'
+  );
+});
+
+// Asosiy menyuga qaytish (callback)
 router.callbackQuery('main_menu', async (ctx) => {
   try {
     await ctx.editMessageText(
-      `👋 Assalomu alaykum, ${ctx.from.first_name}!\nQuyidagi menyudan tanlang:`,
-      { reply_markup: keyboards.mainMenu() }
+      'Quyidagi menyudan tanlang:',
+      { reply_markup: keyboards.mainMenuInline() }
     );
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -55,7 +91,7 @@ router.callbackQuery(/^send_(childhood|current)$/, async (ctx) => {
       ? '👶 Iltimos, yoshlikdagi rasmingizni yuboring:' 
       : '🧑 Iltimos, hozirgi rasmingizni yuboring:';
     
-    await ctx.reply(msg, { reply_markup: { force_reply: true } });
+    await ctx.reply(msg);
     await ctx.answerCallbackQuery();
   } catch (error) {
     console.error('Send photo xatosi:', error);
@@ -85,13 +121,11 @@ router.on(':photo', async (ctx, next) => {
     
     const filePath = path.join(userDir, fileName);
     
-    // Rasmni yuklab olish
     const response = await fetch(fileUrl);
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const buffer = await response.arrayBuffer();
     fs.writeFileSync(filePath, Buffer.from(buffer));
     
-    // Metadata saqlash
     const photoData = {
       id: storage.generateId(),
       userId: user.id,
@@ -109,7 +143,7 @@ router.on(':photo', async (ctx, next) => {
     const typeName = photoType === 'childhood' ? 'Yoshlikdagi' : 'Hozirgi';
     await ctx.reply(
       `✅ ${typeName} rasmingiz muvaffaqiyatli saqlandi!`,
-      { reply_markup: keyboards.mainMenu() }
+      { reply_markup: keyboards.mainMenuInline() }
     );
   } catch (error) {
     console.error('Rasm saqlashda xato:', error);
@@ -118,12 +152,12 @@ router.on(':photo', async (ctx, next) => {
   }
 });
 
-// "Rasmlarim" menyusi
+// "Yuborgan rasmlarim"
 router.callbackQuery('my_photos', async (ctx) => {
   try {
     await ctx.editMessageText(
       '📸 Qaysi turdagi rasmlaringizni ko\'rmoqchisiz?',
-      { reply_markup: keyboards.myPhotosMenu() }
+      { reply_markup: keyboards.myPhotosMenuInline() }
     );
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -144,7 +178,7 @@ router.callbackQuery(/^list_(childhood|current)$/, async (ctx) => {
     if (photos.length === 0) {
       await ctx.editMessageText(
         `📭 Sizda hali ${typeName} rasmlar yo'q.`,
-        { reply_markup: keyboards.backToMain() }
+        { reply_markup: keyboards.backToMainInline() }
       );
       await ctx.answerCallbackQuery();
       return;
@@ -162,7 +196,7 @@ router.callbackQuery(/^list_(childhood|current)$/, async (ctx) => {
   }
 });
 
-// Rasmni ko'rsatish (yordamchi)
+// Rasmni ko'rsatish
 async function showPhoto(ctx, photo, index, total) {
   try {
     const filePath = path.join(storage.PHOTOS_DIR, photo.filePath);
@@ -213,7 +247,7 @@ router.callbackQuery(/^nav_(prev|next)$/, async (ctx) => {
   }
 });
 
-// O'chirish so'rovi (tasdiqlash)
+// O'chirish so'rovi
 router.callbackQuery(/^delete_req_(.+)_(childhood|current)$/, async (ctx) => {
   try {
     const photoId = ctx.match[1];
@@ -221,7 +255,7 @@ router.callbackQuery(/^delete_req_(.+)_(childhood|current)$/, async (ctx) => {
     
     await ctx.editMessageCaption({
       caption: `❓ Rostdan ham bu rasmni o'chirmoqchimisiz?`,
-      reply_markup: keyboards.confirmDeleteKeyboard(photoId, photoType)
+      reply_markup: keyboards.confirmDeleteInline(photoId, photoType)
     });
     await ctx.answerCallbackQuery();
   } catch (error) {
@@ -245,12 +279,11 @@ router.callbackQuery(/^confirm_delete_(.+)_(childhood|current)$/, async (ctx) =>
     
     await ctx.answerCallbackQuery({ text: '✅ O\'chirildi' });
     
-    // Yangi ro'yxat
     const photos = storage.getUserPhotos(userId, photoType);
     if (photos.length === 0) {
       await ctx.editMessageText(
         `📭 Sizda ${photoType === 'childhood' ? 'yoshlikdagi' : 'hozirgi'} rasmlar qolmadi.`,
-        { reply_markup: keyboards.backToMain() }
+        { reply_markup: keyboards.backToMainInline() }
       );
     } else {
       ctx.session.photoList = photos;
@@ -262,13 +295,6 @@ router.callbackQuery(/^confirm_delete_(.+)_(childhood|current)$/, async (ctx) =>
   } catch (error) {
     console.error('Confirm delete xatosi:', error);
     await ctx.answerCallbackQuery({ text: 'Xatolik', show_alert: true });
-  }
-});
-
-// Noto'g'ri xabar
-router.on('message', async (ctx) => {
-  if (ctx.session?.step === 'waiting_photo') {
-    await ctx.reply('❌ Iltimos, rasm (foto) yuboring.');
   }
 });
 
