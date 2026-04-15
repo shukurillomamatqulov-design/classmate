@@ -18,8 +18,9 @@ function mainReplyKeyboard(isAdmin = false) {
 // Asosiy menyu (foydalanuvchi)
 function mainMenuInline() {
   return new InlineKeyboard()
-    .text('👶 Yoshlikdagi rasm', 'send_childhood')
-    .text('🧑 Hozirgi rasm', 'send_current')
+    .text('Vinetkadagu rasmni yuborish', 'send_childhood')
+    .row()
+    .text('Hozirgi rasmni yuborish', 'send_current')
     .row()
     .text('🖼 Yuborgan rasmlarim', 'my_photos');
 }
@@ -27,7 +28,7 @@ function mainMenuInline() {
 // Rasmlarim menyusi
 function myPhotosMenuInline() {
   return new InlineKeyboard()
-    .text('👶 Yoshlikdagi', 'list_childhood')
+    .text('👶 Vinetkadagi', 'list_childhood')
     .text('🧑 Hozirgi', 'list_current')
     .row()
     .text('🔙 Asosiy menyu', 'main_menu');
