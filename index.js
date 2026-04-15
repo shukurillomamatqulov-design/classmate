@@ -1,38 +1,36 @@
 require('dotenv').config();
-const { Bot, session, GrammyError, HttpError } = require('grammy');
-const { initDatabase } = require('./database');
+const { Bot, session } = require('grammy');
 const userHandlers = require('./handlers/user');
 const adminHandlers = require('./handlers/admin');
 
+// Tekshirish
+if (!process.env.BOT_TOKEN) {
+  console.error('BOT_TOKEN muhit o\'zgaruvchisi topilmadi!');
+  process.exit(1);
+}
+
 const bot = new Bot(process.env.BOT_TOKEN);
 
-// Session (foydalanuvchi holatini saqlash uchun)
-bot.use(session({ initial: () => ({ step: null, photoType: null }) }));
+// Session
+bot.use(session({ initial: () => ({}) }));
 
-// Database bilan ishlash uchun kontekstga qo'shamiz
-bot.use(async (ctx, next) => {
-  ctx.db = await initDatabase();
-  await next();
-});
-
-// Handlerlarni ulash
+// Handlerlar
 bot.use(userHandlers);
 bot.use(adminHandlers);
 
 // Xatoliklarni ushlash
 bot.catch((err) => {
-  const ctx = err.ctx;
-  console.error(`Error while handling update ${ctx.update.update_id}:`);
-  const e = err.error;
-  if (e instanceof GrammyError) {
-    console.error("Error in request:", e.description);
-  } else if (e instanceof HttpError) {
-    console.error("Could not contact Telegram:", e);
-  } else {
-    console.error("Unknown error:", e);
-  }
+  console.error('Xatolik:', err.error || err);
 });
 
-// Botni ishga tushirish
-bot.start();
-console.log('Bot ishga tushdi...');
+// Ishga tushirish
+bot.start().then(() => {
+  console.log('Bot muvaffaqiyatli ishga tushdi!');
+}).catch(err => {
+  console.error('Bot ishga tushmadi:', err);
+  process.exit(1);
+});
+
+// To'xtatish signallari
+process.once('SIGINT', () => bot.stop());
+process.once('SIGTERM', () => bot.stop());
